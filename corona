@@ -1,0 +1,752 @@
+POSIXLY_CORRECT=yes
+HELP_FOR_USER()
+{
+echo "HELP
+NAME
+corona - COVID-19 coronovirus infectious disease record analyzer
+
+USE
+corona [-h][FILTERS][COMMAND][LOG[LOG2[[...]]]
+
+COMMAND
+infected -counts the cislice of infected.
+merge- merges several files with records into one, maintaining the original order.
+gender- lists the cislice of infected for each sex.
+age- lists statistics on the cislice of infected persons by age.
+daily- lists statistics of infected persons for individual days.
+monthly- lists statistics of infected persons for individual months.
+yearly- lists statistics on infected persons for each year.
+countries- lists statistics of infected persons for individual countries of the disease (excluding the Czech Republic, ie the code CZ).
+districts- lists statistics on infected persons for individual districts.
+regions- lists statistics of infected persons for individual regions.
+
+FILTERS
+-a DATETIME- after: only PO records of this date are considered (including this date). DATETIMEis a format YYYY-MM-DD.
+-b DATETIME- before: only records BEFORE this date (including this date) are considered.
+-g GENDER- only records of infected persons of a given sex are considered. GENDERcan be M(men) or Z(women).
+-s [WIDTH]for the  gender, age, daily, monthly, yearly, countries, districts and regions commands it displays data not numerically, but graphically in the form of histograms ."
+}
+
+DAYS_IN_MONTHS_1=( 31 28 31 30 31 30 31 31 30 31 30 31 )
+DAYS_IN_MONTHS_2=( 31 29 31 30 31 30 31 31 30 31 30 31 )
+START_YEAR=1970
+END_YEAR=9999
+GENDER_F=" "
+WIDTH_F="ZERO"
+COMMAND_F="ZERO"
+FILE=""
+one=100
+two=500
+three=1000
+four=10000
+five=100000
+flag=0
+FILTER=""
+head="id,datum,vek,pohlavi,kraj_nuts_kod,okres_lau_kod,nakaza_v_zahranici,nakaza_zeme_csu_kod,reportovano_khs"
+
+if [ "$#" = 0 ]; then
+    FILE=""
+    echo "The cislice of arguments is 0"
+    exit 1
+fi
+
+FILE_IN()
+{
+    awk '
+    $0 !~ "id,datum,vek,pohlavi,kraj_nuts_kod,okres_lau_kod,nakaza_v_zahranici,nakaza_zeme_csu_kod,reportovano_khs" {print $0}
+    '
+}
+
+
+
+while [ "$#" -gt 0 ]; do 
+    case "$1" in
+     infected | merge | gender | age | daily | monthly | yearly | countries | districts | regions)
+         COMMAND="$1"
+         shift
+         ;;
+     -a)
+         FILTER="$1"
+         DATETIME_A_F="$2"
+         case "$3" in
+             infected | merge | gender | age | daily | monthly | yearly | countries | districts | regions)
+                 COMMAND="$3"
+                ;;
+            esac
+         shift
+         shift
+         ;;
+     -b)
+         FILTER="$1"
+         DATETIME_B_F="$2"
+         case "$3" in
+             infected | merge | gender | age | daily | monthly | yearly | countries | districts | regions)
+                 COMMAND="$3"
+                ;;
+            esac
+         shift
+         shift
+         ;;
+     -g)
+         FILTER="$1"
+         if [[ ! ["$2" = "Z" || "$2" = "M"] ]]; then
+             echo "Invalid gender designation"
+             exit 1
+             shift
+         else
+             GENDER_F="$2"
+             case "$3" in
+                 infected | merge | gender | age | daily | monthly | yearly | countries | districts | regions)
+                     COMMAND="$3"
+                    ;;
+                esac
+           fi
+         shift
+         shift
+         ;;
+     -s)
+         FILTER="$1"
+         if [[ "$2" =~ ^[0-9]+$ ]]; then
+             WIDTH_F="$2"
+             COMMAND="$3"
+             shift
+         else
+             WIDTH_F="NUMBER"
+             COMMAND="$2"
+           fi
+         shift
+         shift
+         ;;
+     -h)
+         HELP_FOR_USER
+         exit 0
+         ;;
+     *.csv)
+         flag=1
+         if [ -r "$1" ]; then
+             if [ -z "$FILE" ]; then
+                 FILE+=$(cat $1)
+             else 
+                 FILE=$(echo "$FILE" && cat "$1")
+               fi
+         else 
+             echo "Unreadable file"
+             exit 1
+            fi
+            shift
+            ;;
+     *.gz)
+         flag=1
+         if [ -r "$1" ]; then
+             if [ -z "$FILE" ]; then
+                 FILE+=$(zcat "$1")
+             else
+                 FILE=$(echo "$FILE" && zcat "$1")
+               fi
+         else 
+             echo "Unreadable file"
+             exit 1
+           fi
+          shift
+           ;;
+     *.bz2)
+          flag=1
+          if [ -r "$1" ]; then
+             if [ -z "$FILE" ]; then
+                 FILE=$(bzcat "$1")
+              else
+                 FILE=$(echo "$FILE" && bzcat "$1")
+               fi
+          else 
+             echo "Unreadable file"
+             exit 1
+           fi
+          shift
+        ;;
+    esac 
+done
+if [ $flag == 0 ]; then
+
+ mass=()
+ if [[ -z "$COMMAND" ]]; then
+     shift $OPTIND
+     mass=($@)
+     COMMAND=${mass[0]}
+     else
+     mass=($@)
+   fi
+
+ if [ ! -p /dev/stdin ]; then
+     for input in ${mass[*]}; do
+         if [[ "$input" =~ \.(csv|csv.gz|csv.bz2)$ ]]; then
+             files+=($input)
+         fi
+     done
+     IFS="\n"
+     if [[ ${#files} -gt 0 ]]; then
+         for input in ${files[*]}; do
+             if [[ "$input" =~ \.csv$ ]]; then
+                 FILE+=$(cat $input | FILE_IN)" "
+             elif [[ "$input" =~ \.gz$ ]]; then
+                 FILE+=$(zcat $input | FILE_IN)" "
+             elif [[ "$input" =~ \.bz2$ ]]; then
+                 FILE+=$(bzcat $input | FILE_IN)" "
+               fi
+          done
+      else
+         echo "Please provide a input (.csv , .csv.gz or .csv.bz2)"
+         read input
+         if [[ ! "$input" =~ \.csv$ ]]; then
+             echo "Invalid type of input!"
+         else
+             if [[ "$input" =~ \.csv$ ]]; then
+                 FILE+=$(cat $input | FILE_IN)
+             elif [[ "$input" =~ \.gz$ ]]; then
+                 FILE+=$(zcat $input | FILE_IN)
+             elif [[ "$input" =~ \.bz2$ ]]; then
+                 FILE+=$(bzcat $input | FILE_IN)
+               fi
+           fi
+       fi
+    IFS=""
+   else
+     FILE+=$(FILE_IN)
+   fi
+fi
+
+DATE_IS_TRUE()
+{
+   DATA=$1
+   if [[ "$DATA" =~ 20[0-9]{2}-[01][0-9]-[0-3][0-9] ]]; then
+       return $(echo $DATA | awk -F- -v MONTHS_DAYS=YEAR_IS_LEAP $1'
+       {print ($1>9999||$1<1970||$2>12||$3>MONTHS_DAYS[int($2)-1]||$2<0||$3<0?0:1)}')
+    else 
+     echo "Invalid date! Write something like YYYY-MM-DD."
+    fi
+
+}
+
+FILTER_GENDER ()
+{
+  if [ "$GENDER_F" == "M" ]; then
+     echo "$FILE" | awk -F,  -v GENDER_F="$GENDER_F" '{if( $4 == GENDER_F) {print} }'
+  elif [ "$GENDER_F" == "Z" ]; then
+     echo "$FILE" | awk -F,  -v GENDER_F="$GENDER_F" '{if( $4 == GENDER_F) {print} }'
+    fi
+}
+
+FILTER_DATETIME_A ()
+{
+  echo "$FILE" | awk -F, -v DATETIME_A="$DATETIME_A_F" '{if(DATETIME_A<=$2){print}}'
+}
+
+FILTER_DATETIME_B ()
+{
+  echo "$FILE" | awk -F, -v DATETIME_B="$DATETIME_B_F" '{if(DATETIME_B>=$2){print}}'
+}
+
+
+if [[ $FILTER == "-g" ]]; then
+ if [[ $COMMAND == "" ]];then
+     FILTER_GENDER
+    else
+     FILE=$(FILTER_GENDER)  
+    fi
+fi
+
+if [[ $FILTER == "-a" ]]; then
+ if [[ $COMMAND == "" ]];then
+     FILTER_DATETIME_A
+     DATETIME_A_F="0000-00-00"
+    else
+     FILE=$(FILTER_DATETIME_A)  
+     DATETIME_A_F="0000-00-00"
+    fi
+fi
+
+if [[ $FILTER == "-b" ]]; then
+ if [[ $COMMAND == "" ]];then
+     FILTER_DATETIME_B
+    else
+     FILE=$(FILTER_DATETIME_B)  
+    fi
+fi
+
+
+infected()
+{
+ echo -e "$FILE" | awk   -v count=0 -v flag="$flag" -v COMMAND="$COMMAND" '
+ {count++}
+ END {
+     if (flag>0 && COMMAND=""){count=count-1}
+     print count}'
+ exit 0
+}
+merge() {
+  local files=("$@")
+  local header_printed=false
+
+  for file in "${files[@]}"; do
+    if [ "$header_printed" = false ]; then
+      # Print header only once
+      head -n 1 "$file"
+      header_printed=true
+    fi
+    # Skip the header in subsequent files
+    tail -n +2 "$file"
+  done
+}
+# merge() {
+#     if [[ -n "$FILE" ]];then
+#         head+="\n"
+#     fi
+#     for string in ${FILE}; do
+#         echo -e "$string"
+#     done
+# }
+
+gender()
+{
+    if [[ $WIDTH_F == "ZERO" ]];then
+     echo "$FILE" | awk -F, '
+        BEGIN {M=0;Z=0;None=0}
+        ($4 == "M"){M++}
+        ($4 == "Z"){Z++}
+        ($4 ==  ""){None++}
+        END {
+            print "M:",M
+            print "Z:",Z
+            print "None:",None
+        }' 
+   fi
+   if [[ $WIDTH_F == "NUMBER" ]]; then
+        echo "$FILE" | awk -F ',' -v number=100 'BEGIN{None=0}{end[$4]++}
+        END{
+            for(i in end){
+                if(i == ""){
+                    None=end[i];
+                    printf("None:   ");
+                    if(int(end[i]/100000)== 0){
+                        printf("\n")
+                    }
+                    for(j=0; j < int(end[i]/100000); j++){
+                        printf("#");
+                        if(j+1 == int(end[i]/100000)){
+                            printf("\n")
+                        }
+                    }
+                }
+                if(i !=""){\
+                    printf(i ": ");
+                    if(int(end[i]/100000) == 0){
+                        printf("\n")
+                    }
+                    for(j=0; j < int(end[i]/100000); j++){
+                        printf("#");
+                        if(j+1 == int(end[i]/100000)){
+                            printf("\n")
+                        }
+                    }
+                }
+            }
+        }' | sort 
+    fi 
+}
+
+age(){
+    without_s_age(){
+    echo "$FILE" | awk -F,  'BEGIN{
+        age_0_5=0
+        age_6_15=0
+        age_16_25=0
+        age_26_35=0
+        age_36_45=0
+        age_46_55=0
+        age_56_65=0
+        age_66_75=0
+        age_76_85=0
+        age_86_95=0
+        age_96_105=0
+        age_106=0
+        age_nothing=0
+        }{
+            if(length($3)==0){
+              age_nothing++
+            }
+            else if ($3<6){
+             age_0_5++
+            }
+            else if($3>5&&$3<16){
+             age_6_15++
+            }
+            else if($3>15&&$3<26){
+             age_16_25++
+            }
+            else if($3 > 25 && $3 < 36){
+              age_26_35++
+            }
+            else if($3 > 35 && $3 < 46){
+             age_36_45++
+            }
+            else if($3 > 45 && $3 < 56){
+             age_46_55++
+            }
+            else if($3 > 55 && $3 < 66){
+             age_56_65++
+            }
+            else if($3 > 65 && $3 < 76){
+             age_66_75++
+            }
+            else if($3 > 75 && $3 < 86){
+             age_76_85++
+            }
+            else if($3 > 85 && $3 < 96){
+             age_86_95++
+            }
+            else if($3 > 95 && $3 < 106){
+             age_96_105++
+            }
+            else if ($3 > 105){
+             age_106++
+            }
+        }  
+        END{
+         printf("0-5   : %d\n",age_0_5 )
+         printf("6-15  : %d\n",age_6_15 )
+         printf("16-25 : %d\n",age_16_25 )
+         printf("26-35 : %d\n",age_26_35 )
+         printf("36-45 : %d\n",age_36_45 )
+         printf("46-55 : %d\n",age_46_55 )
+         printf("56-65 : %d\n",age_56_65 )
+         printf("66-75 : %d\n",age_66_75 )
+         printf("76-85 : %d\n",age_76_85 )
+         printf("86-95 : %d\n",age_86_95 )
+         printf("96-105: %d\n",age_96_105 )
+         printf(">105  : %d\n",age_106 )
+        }
+        END{if (age_nothing>0){
+         printf("None  :  %d",age_nothing )
+        }
+      }
+      '
+    }
+    if [[ $WIDTH_F == "NUMBER" ]]; then
+        echo "$FILE" | awk -F ',' -v number=10000 'BEGIN{None=0}{end[$3]++}
+        END{
+            for(i in end){
+                if(i == ""){
+                    None=end[i];
+                    printf("None:   ");
+                    if(int(end[i]/10000)== 0){
+                        printf("\n")
+                    }
+                    for(j=0; j < int(end[i]/10000); j++){
+                        printf("#");
+                        if(j+1 == int(end[i]/10000)){
+                            printf("\n")
+                        }
+                    }
+                }
+                if(i !=""){\
+                    printf(i ": ");
+                    if(int(end[i]/10000) == 0){
+                        printf("\n")
+                    }
+                    for(j=0; j < int(end[i]/10000); j++){
+                        printf("#");
+                        if(j+1 == int(end[i]/10000)){
+                            printf("\n")
+                        }
+                    }
+                }
+            }
+        }' | sort 
+    else
+       echo -e "$FILE" | without_s_age
+    fi
+}
+
+daily()
+{
+    if [[ $WIDTH_F == "NUMBER" ]]; then
+        echo "$FILE" | awk -F ',' -v number=500 'BEGIN{None=0}{end[$2]++}
+        END{
+            for(i in end){
+                if(i == ""){
+                    None=end[i];
+                    printf("None:   ");
+                    if(int(end[i]/500)== 0){
+                        printf("\n")
+                    }
+                    for(j=0; j < int(end[i]/500); j++){
+                        printf("#");
+                        if(j+1 == int(end[i]/500)){
+                            printf("\n")
+                        }
+                    }
+                }
+                if(i !=""){\
+                    printf(i ": ");
+                    if(int(end[i]/500) == 0){
+                        printf("\n")
+                    }
+                    for(j=0; j < int(end[i]/500); j++){
+                        printf("#");
+                        if(j+1 == int(end[i]/500)){
+                            printf("\n")
+                        }
+                    }
+                }
+            }
+        }' | sort 
+ else
+     echo "$FILE" | awk -F , '
+     BEGIN {None=0}
+     {end[$2]++}
+     END{
+         for (i in end){
+             if (i ==""){None++}
+             if (i !="" && i !="datum"){print i": "end[i]}
+            }
+            print "None: ",None
+        }' | sort
+  fi
+}    
+
+monthly()
+{
+ if [[ $WIDTH_F == "NUMBER" ]]; then
+        echo "$FILE" | awk -F ',' -v number=10000 'BEGIN{None=0}{end[substr($2,1,7)]++}
+        END{
+            for(i in end){
+                if(i == ""){
+                    None=end[i];
+                    printf("None:   ");
+                    if(int(end[i]/10000)== 0){
+                        printf("\n")
+                    }
+                    for(j=0; j < int(end[i]/10000); j++){
+                        printf("#");
+                        if(j+1 == int(end[i]/10000)){
+                            printf("\n")
+                        }
+                    }
+                }
+                if(i !=""){\
+                    printf(i ": ");
+                    if(int(end[i]/10000) == 0){
+                        printf("\n")
+                    }
+                    for(j=0; j < int(end[i]/10000); j++){
+                        printf("#");
+                        if(j+1 == int(end[i]/10000)){
+                            printf("\n")
+                        }
+                    }
+                }
+            }
+        }' | sort  
+ else
+     echo "$FILE" | awk -F , '
+     BEGIN {None=0}
+     {end[substr($2,1,7)]++}
+     END{
+         for (i in end){
+             if (i ==""){None++}
+             if (i !="" && i != "datum"){print i": "end[i]}
+            }
+            print "None: ",None
+        }' | sort
+ fi
+}
+    
+yearly()
+{
+    if [[ $WIDTH_F == "NUMBER" ]]; then
+        echo "$FILE" | awk -F ',' -v number=100000 'BEGIN{None=0}{end[substr($2,1,4)]++}
+        END{
+            for(i in end){
+                if(i == ""){
+                    None=end[i];
+                    printf("None:   ");
+                    if(int(end[i]/100000)== 0){
+                        printf("\n")
+                    }
+                    for(j=0; j < int(end[i]/100000); j++){
+                        printf("#");
+                        if(j+1 == int(end[i]/100000)){
+                            printf("\n")
+                        }
+                    }
+                }
+                if(i !=""){\
+                    printf(i ": ");
+                    if(int(end[i]/100000) == 0){
+                        printf("\n")
+                    }
+                    for(j=0; j < int(end[i]/100000); j++){
+                        printf("#");
+                        if(j+1 == int(end[i]/100000)){
+                            printf("\n")
+                        }
+                    }
+                }
+            }
+        }' | sort 
+ else
+     echo "$FILE" | awk -F , '
+     BEGIN {None=0}
+     {end[substr($2,1,4)]++}
+     END{
+         for (i in end){
+             if (i ==""){None++}
+             if (i !="" && i != "datum"){print i": "end[i]}
+            }
+            print "None: ",None
+        }' | sort 
+  fi
+}
+
+countries()
+{
+    if [[ $WIDTH_F == "NUMBER" ]]; then
+        echo "$FILE" | awk -F ',' -v number=100 'BEGIN{None=0}{end[$8]++}
+        END{
+            for(i in end){
+                if(i == ""){
+                    None=end[i];
+                    printf("None:   ");
+                    if(int(end[i]/100)== 0){
+                        printf("\n")
+                    }
+                    for(j=0; j < int(end[i]/100); j++){
+                        printf("#");
+                        if(j+1 == int(end[i]/100)){
+                            printf("\n")
+                        }
+                    }
+                }
+                if(i !=""){\
+                    printf(i ": ");
+                    if(int(end[i]/100) == 0){
+                        printf("\n")
+                    }
+                    for(j=0; j < int(end[i]/100); j++){
+                        printf("#");
+                        if(j+1 == int(end[i]/100)){
+                            printf("\n")
+                        }
+                    }
+                }
+            }
+        }' | sort  
+ else
+     echo "$FILE" | awk -F, '{end[$8]++}\
+        END{for (i in end){if(i!="" && i!="CZ"){print i": "end[i]}}}' | sort -d | uniq -c 
+  fi
+}
+
+districts()
+{
+    if [[ $WIDTH_F == "NUMBER" ]]; then
+        echo "$FILE" | awk -F ',' -v number=1000 'BEGIN{None=0}{end[$6]++}
+        END{
+            for(i in end){
+                if(i == ""){
+                    None=end[i];
+                    printf("None:   ");
+                    if(int(end[i]/1000)== 0){
+                        printf("\n")
+                    }
+                    for(j=0; j < int(end[i]/1000); j++){
+                        printf("#");
+                        if(j+1 == int(end[i]/1000)){
+                            printf("\n")
+                        }
+                    }
+                }
+                if(i !=""){\
+                    printf(i ": ");
+                    if(int(end[i]/1000) == 0){
+                        printf("\n")
+                    }
+                    for(j=0; j < int(end[i]/1000); j++){
+                        printf("#");
+                        if(j+1 == int(end[i]/1000)){
+                            printf("\n")
+                        }
+                    }
+                }
+            }
+        }' | sort 
+ else
+     echo "$FILE" | awk -F, '{end[$6]++}\
+        END{for (i in end){if(i =="")print("NONE: "end[i]);else{print i": "end[i]}}}' | sort -n | uniq -c 
+  fi
+}
+
+regions()
+{
+if [[ $WIDTH_F == "NUMBER" ]]; then
+        echo "$FILE" | awk -F ',' -v number=10000 'BEGIN{None=0}{end[$5]++}
+        END{
+            for(i in end){
+                if(i == ""){
+                    None=end[i];
+                    printf("None:   ");
+                    if(int(end[i]/10000)== 0){
+                        printf("\n")
+                    }
+                    for(j=0; j < int(end[i]/10000); j++){
+                        printf("#");
+                        if(j+1 == int(end[i]/10000)){
+                            printf("\n")
+                        }
+                    }
+                }
+                if(i !=""){\
+                    printf(i ": ");
+                    if(int(end[i]/10000) == 0){
+                        printf("\n")
+                    }
+                    for(j=0; j < int(end[i]/10000); j++){
+                        printf("#");
+                        if(j+1 == int(end[i]/10000)){
+                            printf("\n")
+                        }
+                    }
+                }
+            }
+        }' | sort 
+ else
+     echo "$FILE" |  awk -F, '{end[$5]++}\
+        END{for (i in end){if(i =="")print("NONE: "end[i]);else{print i": "end[i]}}}' | sort -n | uniq -c 
+  fi
+}
+
+
+if [[ $COMMAND == "infected" ]];then
+ infected 
+elif [[ "$COMMAND" == 'merge' ]]; then
+    merge
+elif [[ $COMMAND == "gender" ]];then
+ gender
+elif [[ $COMMAND == "age" ]];then
+ age
+elif [[ $COMMAND == "daily" ]];then
+ daily
+elif [[ $COMMAND == "monthly" ]];then
+ monthly
+elif [[ $COMMAND == "yearly" ]];then
+ yearly
+elif [[ $COMMAND == "countries" ]];then
+ countries
+elif [[ $COMMAND == "districts" ]];then
+ districts
+elif [[ $COMMAND == "regions" ]];then
+ regions
+fi
+
+exit 0
+
+
