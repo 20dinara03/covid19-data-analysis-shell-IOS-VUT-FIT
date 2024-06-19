@@ -91,7 +91,7 @@ corona -h
 
 ## Authors
 
-- [Dinara Garipova]()
+- [Dinara Garipova](https://github.com/20dinara03?tab=repositories)
 
 ## License
 
